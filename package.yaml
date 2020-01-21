@@ -22,11 +22,13 @@ description:         Please see the README on GitHub at <https://github.com/an-d
 dependencies:
 - base >= 4.7 && < 5
 - milter
-- DNSRBL
 - network-simple
 - network
 - bytestring
 - unagi-chan
+- iproute
+- async
+- dns
 
 library:
   source-dirs: src
@@ -35,10 +37,6 @@ executables:
   DNSBL-milter-exe:
     main:                Main.hs
     source-dirs:         app
-    ghc-options:
-    - -threaded
-    - -rtsopts
-    - -with-rtsopts=-N
     dependencies:
     - DNSBL-milter
 
@@ -46,9 +44,5 @@ tests:
   DNSBL-milter-test:
     main:                Spec.hs
     source-dirs:         test
-    ghc-options:
-    - -threaded
-    - -rtsopts
-    - -with-rtsopts=-N
     dependencies:
     - DNSBL-milter

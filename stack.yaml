@@ -30,8 +30,7 @@ resolver: lts-14.20
 #   - wai
 packages:
 - .
-- ../DNSRBL/
-- ../HaskellMilter/
+- ../HaskellMilter
 # Dependency packages to be pulled from upstream that are not in the resolver.
 # These entries can reference officially published versions as well as
 # forks / in-progress versions pinned to a git hash. For example:
@@ -42,6 +41,8 @@ packages:
 #   commit: e7b331f14bcffb8367cd58fbfc8b40ec7642100a
 #
 extra-deps: []
+#- github: an-death/HaskellMilter
+#  commit: cccd8a96608682d4091832720d3765c17bec671e
 
 # Override default flag values for local packages and extra-deps
 # flags: {}
