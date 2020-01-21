@@ -1,3 +1,15 @@
+#!/usr/bin/env stack
+{- stack
+  --resolver lts-14.20
+  --install-ghc
+  runghc
+  --
+  localhost 
+  8000
+  zen.spamhaus.org
+  +RTS -T
+-}
+
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main where
