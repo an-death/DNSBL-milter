@@ -26,6 +26,7 @@ dependencies:
 - network-simple
 - network
 - bytestring
+- unagi-chan
 
 library:
   source-dirs: src
