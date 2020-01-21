@@ -4,13 +4,14 @@
   --install-ghc
   runghc
   --
-  localhost 
+  localhost
   8000
   zen.spamhaus.org
   +RTS -T
 -}
-
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE Strict #-}
 
 module Main where
 
@@ -22,11 +23,10 @@ import Data.ByteString.Lazy (hPut)
 import Data.ByteString.Lazy.Char8 (pack)
 import qualified Data.Text as T (pack, replace, toLower)
 
-import Data.Either (rights)
-
-import Control.Concurrent (forkIO)
+import Control.Concurrent.Async (concurrently)
 import qualified Control.Concurrent.Chan.Unagi as U
-import Control.Exception (bracket)
+import Control.Exception (bracket, catch)
+import Control.Monad (void)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 
 import qualified Network.Simple.TCP as TCP (HostPreference(Host), serve)
@@ -40,6 +40,7 @@ import System.IO
   )
 
 import Milter (newMilter)
+import qualified Network.DNS as DNS
 import Network.DNSBL
 
 import qualified Network.Wai.Middleware.Prometheus as P
@@ -59,17 +60,21 @@ main = do
   print $ "Start " ++ name ++ " on " ++ host ++ ":" ++ port
   (inCn, outCn) <- U.newChan
   metrics <- registerMetrics
-  forkIO $ dnsBLResolve metrics outCn rblProviders
-  forkIO $ run 6000 (P.prometheus P.def app)
-  let handler = newMilter (U.writeChan inCn)
---  let handler = \hdl -> hGetLine hdl >>= U.writeChan inCn
-  server host port handler
+  let resolver = dnsBLResolve metrics (U.readChan outCn) rblProviders
+      httpserver = run 6000 (P.prometheus P.def app)
+      handler = newMilter (U.writeChan inCn)  
+      --handler = \hdl -> hGetLine hdl >>= U.writeChan inCn
+      milterserver = server host port handler
+  void $ concurrent3 resolver httpserver milterserver
 
+--   handler = newMilter (U.writeChan inCn)
 app :: Wai.Application
 app request respond = do
-  response <- case Wai.pathInfo request of
-      [] -> return $ Wai.responseLBS status200 [("Content-Type", "text/plain")] (pack name)
-      _  -> return $ Wai.responseLBS status404 [("Content-Type", "text/plain")] "sorry"
+  response <-
+    case Wai.pathInfo request of
+      []        -> return $ Wai.responseLBS status200 [("Content-Type", "text/plain")] (pack name)
+      ["check"] -> return $ Wai.responseLBS status200 [("Content-Type", "text/plain")] (pack name)
+      _         -> return $ Wai.responseLBS status404 [("Content-Type", "text/plain")] "sorry"
   respond response
 
 server :: String -> String -> (Handle -> IO ()) -> IO ()
@@ -89,24 +94,26 @@ server host port handler =
       hClose hdl
       putStrLn $ "connection done" ++ show remoteAddr
 
-dnsBLResolve :: Metrics -> U.OutChan ByteString -> [String] -> IO ()
-dnsBLResolve metric chan providers = loop
+dnsBLResolve :: Metrics -> IO ByteString -> [String] -> IO ()
+dnsBLResolve metric chan providers =
+  withDefaultResolver $ \resolver -> loop resolver
   where
-    loop = do
-      ip <- U.readChan chan
-      incTotal metric ()
-      c <- withRBLProviders providers (unpack ip)
-      case rights c of
-        [] -> return ()
-        provider -> do
-          incBlacklisted metric ()
-          mapM_ (incBlacklist metric) $ map T.pack provider
-      loop
+    loop resolver = do
+      ip <- chan
+      incTotal metric
+      c <- lookupProvider resolver (head providers) (read $ unpack ip) `catch` \(e :: DNS.DNSError) ->
+          print e >> return Nothing
+      case c of
+        Nothing -> return ()
+        Just provider -> do
+          incBlacklisted metric
+          incBlacklist metric $ T.pack provider
+      loop resolver
 
 data Metrics =
   Metrics
-    { incTotal :: () -> IO ()
-    , incBlacklisted :: () -> IO ()
+    { incTotal :: IO ()
+    , incBlacklisted :: IO ()
     , incBlacklist :: P.Label1 -> IO ()
     }
 
@@ -115,9 +122,12 @@ registerMetrics = do
   _total <- P.register total
   _blacklisted <- P.register blacklisted
   _blacklist <- P.register blacklist
-  let inc = const . P.incCounter
+  let inc = P.incCounter
   return $
-    Metrics (inc _total) (inc _blacklisted) (\p -> P.withLabel _blacklist p P.incCounter)
+    Metrics
+      (inc _total)
+      (inc _blacklisted)
+      (\p -> P.withLabel _blacklist p P.incCounter)
 
 total :: P.Metric P.Counter
 total =
@@ -135,3 +145,5 @@ blacklist =
   P.Info (withname "blacklist") "The count of matched IP's by provider."
 
 withname descr = T.toLower . T.replace "-" "_" . T.pack $ name ++ "_" ++ descr
+
+concurrent3 a1 a2 a3 = concurrently (concurrently a1 a2) a3
