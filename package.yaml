@@ -4,7 +4,7 @@ github:              "an-death/DNSBL-milter"
 license:             BSD3
 author:              "as"
 maintainer:          "opiumofthepeople@yandex.ru"
-copyright:           ""
+copyright:           "as"
 
 extra-source-files:
 - README.md

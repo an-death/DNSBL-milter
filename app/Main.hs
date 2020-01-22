@@ -19,7 +19,6 @@ import System.Environment (getArgs)
 
 import Data.ByteString (ByteString, hGetLine)
 import Data.ByteString.Char8 (unpack)
-import Data.ByteString.Lazy (hPut)
 import Data.ByteString.Lazy.Char8 (pack)
 import qualified Data.Text as T (pack, replace, toLower)
 
@@ -27,7 +26,7 @@ import Control.Concurrent.Async (concurrently)
 import qualified Control.Concurrent.Chan.Unagi as U
 import Control.Exception (bracket, catch)
 import Control.Monad (void)
-import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.IO.Class
 
 import qualified Network.Simple.TCP as TCP (HostPreference(Host), serve)
 import Network.Socket (socketToHandle)
@@ -62,16 +61,14 @@ main = do
   metrics <- registerMetrics
   let resolver = dnsBLResolve metrics (U.readChan outCn) rblProviders
       httpserver = run 6000 (P.prometheus P.def app)
-      handler = newMilter (U.writeChan inCn)  
+      handler = newMilter (U.writeChan inCn)
       --handler = \hdl -> hGetLine hdl >>= U.writeChan inCn
       milterserver = server host port handler
   void $ concurrent3 resolver httpserver milterserver
 
---   handler = newMilter (U.writeChan inCn)
 app :: Wai.Application
 app request respond = do
-  response <-
-    case Wai.pathInfo request of
+  response <- case Wai.pathInfo request of
       []        -> return $ Wai.responseLBS status200 [("Content-Type", "text/plain")] (pack name)
       ["check"] -> return $ Wai.responseLBS status200 [("Content-Type", "text/plain")] (pack name)
       _         -> return $ Wai.responseLBS status404 [("Content-Type", "text/plain")] "sorry"
@@ -81,18 +78,18 @@ server :: String -> String -> (Handle -> IO ()) -> IO ()
 server host port handler =
   TCP.serve (TCP.Host host) port $ \(connectionSocket, remoteAddr) ->
     bracket
-      (openHandle connectionSocket remoteAddr)
-      (closeHandle remoteAddr)
-      handler
+      (openHandle connectionSocket)
+      closeHandle
+      (\hdl -> do
+         putStrLn $ "TCP connection established from " ++ show remoteAddr
+         handler hdl
+         putStrLn $ "connection done" ++ show remoteAddr)
   where
-    openHandle soc remoteAddr = do
+    openHandle soc = do
       hdl <- socketToHandle soc ReadWriteMode
       hSetBuffering hdl NoBuffering
-      putStrLn $ "TCP connection established from " ++ show remoteAddr
       return hdl
-    closeHandle remoteAddr hdl = do
-      hClose hdl
-      putStrLn $ "connection done" ++ show remoteAddr
+    closeHandle = hClose
 
 dnsBLResolve :: Metrics -> IO ByteString -> [String] -> IO ()
 dnsBLResolve metric chan providers =

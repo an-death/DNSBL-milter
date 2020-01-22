@@ -6,10 +6,8 @@ module Network.DNSBL
   , withDefaultResolver
   ) where
 
-import Control.Concurrent.Async (mapConcurrently)
 import Control.Exception (throwIO)
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import Data.Either (isLeft)
 import Data.IP
 import Data.List (foldr)
 
@@ -19,9 +17,8 @@ import qualified Data.ByteString.Lazy as BL
 
 import qualified Network.DNS as DNS
 
-type DomainStr = String
 
-type ProviderName = DomainStr
+type DomainStr = String
 
 withDefaultResolver :: (DNS.Resolver -> IO a) -> IO a
 withDefaultResolver f =
@@ -31,8 +28,7 @@ withDefaultResolver f =
       DNS.defaultResolvConf {DNS.resolvCache = Just DNS.defaultCacheConf}
 
 -- | TODO: support IPv6
-lookupProvider ::
-     (MonadIO m) => DNS.Resolver -> DomainStr -> IPv4 -> m (Maybe String)
+lookupProvider :: (MonadIO m) => DNS.Resolver -> DomainStr -> IPv4 -> m (Maybe String)
 lookupProvider resolver provider ip4 = do
   let checkDomain = joinProviderAndAddr provider ip4
   r <- liftIO $ DNS.lookupA resolver checkDomain
@@ -47,11 +43,11 @@ lookupProvider resolver provider ip4 = do
 -- >>> joinProviderAndAddr "domain.com" (read "11.22.33.44" :: IPv4)
 -- "44.33.22.11.domain.com"
 joinProviderAndAddr :: DomainStr -> IPv4 -> BS.ByteString
-joinProviderAndAddr provider addr =
-  BL.toStrict . B.toLazyByteString $
-  foldr (+.+) providerBS . reverse $ ipToListInts addr
+joinProviderAndAddr provider ip = toByteString $ foldr (+.+) providerBS reversedIP
   where
+    reversedIP = reverse $ ipToListInts ip
     providerBS = B.stringUtf8 provider
+    toByteString = BL.toStrict . B.toLazyByteString 
     p = B.char8 '.'
     infixr 6 +.+
     l +.+ r = l <> p <> r
