@@ -70,8 +70,8 @@ extra-deps:
 # Allow a newer minor version of GHC than the snapshot specifies
 compiler-check: newer-minor
 
-# ghc-options:
-#     # All packages
-#     "$locals": -Wall
-#     "$targets": -Werror
-#     "$everything": -O2
+ghc-options:
+    # All packages
+    "$locals": -Wall
+    "$targets": -Werror
+    "$everything": -O2

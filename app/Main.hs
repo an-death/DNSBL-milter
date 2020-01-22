@@ -17,16 +17,15 @@ module Main where
 
 import System.Environment (getArgs)
 
-import Data.ByteString (ByteString, hGetLine)
+import Data.ByteString (ByteString)
 import Data.ByteString.Char8 (unpack)
 import Data.ByteString.Lazy.Char8 (pack)
-import qualified Data.Text as T (pack, replace, toLower)
+import qualified Data.Text as T (Text, pack, replace, toLower)
 
-import Control.Concurrent.Async (concurrently)
+import Control.Concurrent.Async (Concurrently(..), runConcurrently)
 import qualified Control.Concurrent.Chan.Unagi as U
 import Control.Exception (bracket, catch)
 import Control.Monad (void)
-import Control.Monad.IO.Class
 
 import qualified Network.Simple.TCP as TCP (HostPreference(Host), serve)
 import Network.Socket (socketToHandle)
@@ -114,21 +113,17 @@ data Metrics =
     , incBlacklist :: P.Label1 -> IO ()
     }
 
+registerMetrics :: IO Metrics
 registerMetrics = do
   _ <- P.register P.ghcMetrics
   _total <- P.register total
   _blacklisted <- P.register blacklisted
   _blacklist <- P.register blacklist
   let inc = P.incCounter
-  return $
-    Metrics
-      (inc _total)
-      (inc _blacklisted)
-      (\p -> P.withLabel _blacklist p P.incCounter)
+  return $ Metrics (inc _total) (inc _blacklisted) (\p -> P.withLabel _blacklist p P.incCounter)
 
 total :: P.Metric P.Counter
-total =
-  P.counter $ P.Info (withname "total_check") "The number of checked IP's."
+total = P.counter $ P.Info (withname "total_check") "The number of checked IP's."
 
 blacklisted :: P.Metric P.Counter
 blacklisted =
@@ -141,6 +136,11 @@ blacklist =
   P.counter $
   P.Info (withname "blacklist") "The count of matched IP's by provider."
 
+withname :: String -> T.Text
 withname descr = T.toLower . T.replace "-" "_" . T.pack $ name ++ "_" ++ descr
 
-concurrent3 a1 a2 a3 = concurrently (concurrently a1 a2) a3
+concurrent3 :: IO a -> IO b -> IO c -> IO (a, b, c)
+concurrent3 a1 a2 a3 = runConcurrently $ (,,)
+    <$> Concurrently a1
+    <*> Concurrently a2
+    <*> Concurrently a3
