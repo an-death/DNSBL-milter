@@ -18,7 +18,6 @@
 # resolver: ./custom-snapshot.yaml
 # resolver: https://example.com/snapshots/2018-01-01.yaml
 resolver: lts-14.20
-
 # User packages to be built.
 # Various formats can be used as shown in the example below.
 #
@@ -30,7 +29,7 @@ resolver: lts-14.20
 #   - wai
 packages:
 - .
-- ../HaskellMilter
+# - ../HaskellMilter
 # Dependency packages to be pulled from upstream that are not in the resolver.
 # These entries can reference officially published versions as well as
 # forks / in-progress versions pinned to a git hash. For example:
@@ -43,8 +42,8 @@ packages:
 extra-deps: 
 - prometheus-metrics-ghc-1.0.0@sha256:0f4ecbefa810bd847e66c498ab3387bf21e426525a7c9a94841973c582719ba3,1231
 - wai-middleware-prometheus-1.0.0@sha256:1625792914fb2139f005685be8ce519111451cfb854816e430fbf54af46238b4,1314
-#- github: an-death/HaskellMilter
-#  commit: cccd8a96608682d4091832720d3765c17bec671e
+- github: an-death/HaskellMilter
+  commit: 2f75bf33a9b00e2a646a9f41d5b498ac19cc69d3
 
 # Override default flag values for local packages and extra-deps
 # flags: {}
@@ -74,4 +73,4 @@ ghc-options:
     # All packages
     "$locals": -Wall
     "$targets": -Werror
-    "$everything": -O2
+    "$everything": -O2 -fPIC

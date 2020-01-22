@@ -46,7 +46,8 @@ executables:
     source-dirs:         app
     dependencies:
     - DNSBL-milter
-
+    cc-options: -static
+    ld-options: -static 
 tests:
   DNSBL-milter-test:
     main:                Spec.hs
