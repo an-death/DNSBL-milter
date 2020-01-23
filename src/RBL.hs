@@ -48,7 +48,7 @@ withProviders providers f =
 
 lookupIP :: RBL -> IPv4 -> IO [(Provider Name, ProviderResponse)]
 lookupIP (RBL ps resolver) ip = 
-        filter (null.snd) <$> mapConcurrently lookupProvider ps
+        filter (not . null.snd) <$> mapConcurrently lookupProvider ps
     where 
         lookupProvider :: (Provider Name, Provider Domain) -> IO (Provider Name, ProviderResponse)
         lookupProvider (name, domain) = do

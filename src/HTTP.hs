@@ -38,7 +38,7 @@ app name checkF request respond = do
     case pathInfo request of
       [] -> return index'
       ["check"] -> check checkF request
-      _ -> return $ notFound
+      _ -> return notFound
   respond response
 
 index :: String -> Response
@@ -52,7 +52,7 @@ check f request = do
   let query = queryString request
   case lookup "domain" query of
     Nothing -> badRequest
-    Just (Nothing) -> badRequest
+    Just Nothing -> badRequest
     Just (Just domain) -> do
       res <- f domain
       response res

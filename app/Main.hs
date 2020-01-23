@@ -99,7 +99,5 @@ metrics m f domain = do
     res <- f domain
     case res of 
       [] -> return ()
-      ps -> do
-          incBlacklisted m
-          mapM_ (incBlacklist m) $ map ((\(Provider p) -> decodeUtf8 p) . fst) ps
+      ps -> mapM_ (incBlacklist m . (\ (Provider p) -> decodeUtf8 p) . fst) ps
 
