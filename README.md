@@ -6,11 +6,11 @@
 ## Run
 ```bash
 chmod +x app/Maim.hs
-./app/Main.hs {host} {port} {provider_domains..} {+RTS -T}
+./app/Main.hs {host} {port} {name:provider_domain..} {+RTS -T}
 ```
-- host - milter host. Default `localhost`
-- port - milter port. Default `8000`
-- provider_domain - list of domain separated by spaces. Default `zen.spamhaus.org`
+- host - milter host.
+- port - milter port. 
+- provider_domain - Space separated list of name-domain pairs with `:` as delimiter. 
 - {+RTS -T} - Extended GHC output to prometheus metrics
 
 ## Check
