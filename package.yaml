@@ -25,7 +25,6 @@ dependencies:
 - network-simple
 - network
 - bytestring
-- unagi-chan
 - iproute
 - async
 - dns
@@ -36,6 +35,9 @@ dependencies:
 - warp
 - wai
 - http-types
+- aeson
+- safe-exceptions
+- containers
 
 library:
   source-dirs: src
@@ -48,6 +50,7 @@ executables:
     - DNSBL-milter
     cc-options: -static
     ld-options: -static 
+
 tests:
   DNSBL-milter-test:
     main:                Spec.hs
