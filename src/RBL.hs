@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE Strict #-}
 
@@ -12,13 +13,11 @@ module RBL
   , lookupA
   , lookupDomain
   , withProviders
-  , pname
-  , pvalue
   ) where
 
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Exception (throwIO)
-import Control.Exception.Safe (catchAny, throwString)
+import Control.Exception.Safe (catch, throwString)
 import Control.Monad (when)
 import Data.Maybe (fromJust, isNothing)
 
@@ -31,8 +30,11 @@ import qualified Data.Text as T
 import Data.IP
 import qualified Network.DNS as DNS
 
-newtype Provider a =
-  Provider (Name, a)
+data Provider a =
+  Provider
+    { pname :: !Name
+    , pvalue :: !a
+    }
   deriving (Functor)
 
 type Name = T.Text
@@ -45,16 +47,10 @@ type Providers = [Provider Domain]
 
 type ProviderResponse = Provider Response
 
-pname :: Provider a -> Name
-pname (Provider v) = fst v
-
-pvalue :: Provider a -> a
-pvalue (Provider v) = snd v
-
 data RBL =
   RBL
-    { _providers :: Providers
-    , _resolver :: DNS.Resolver
+    { _providers :: !Providers
+    , _resolver :: !DNS.Resolver
     }
 
 withDefaultResolver :: (DNS.Resolver -> IO a) -> IO a
@@ -88,14 +84,14 @@ lookupDomain rbl@(RBL _ resolver) domain = do
   return $ concat results
   where
     domainBS = BS.pack domain
-    lookupIPSafe ip = lookupIP rbl ip `catchAny` const (return [])
+    lookupIPSafe ip =
+      lookupIP rbl ip `catch` (\(_ :: DNS.DNSError) -> return [])
 
 lookupA :: DNS.Resolver -> ByteString -> IO (Maybe [IPv4])
 lookupA resolver domain = do
   resp <- DNS.lookupA resolver domain
   case resp of
-    -- name not found
-    Left DNS.NameError -> return Nothing
+    Left DNS.NameError -> return Nothing  -- name not found
     Right ansv -> return $ Just ansv
     Left e -> throwIO e
 

@@ -39,7 +39,8 @@ app appname checkF request respond = do
   respond response
 
 index :: String -> Response
-index appname = responseLBS status200 [("Content-Type", "text/plain")] (pack appname)
+index appname =
+  responseLBS status200 [("Content-Type", "text/plain")] (pack appname)
 
 notFound :: Response
 notFound = responseLBS status404 [("Content-Type", "text/plain")] "¯\\_(ツ)_/¯"
@@ -48,13 +49,14 @@ check :: CheckDomain -> Request -> IO Response
 check f request =
   case lookup "domain" query of
     Just (Just domain) -> f (unpack domain) >>= response
-    _                  -> badRequest
+    _ -> badRequest
   where
     query = queryString request
     response checkresults =
       let json =
             DA.encode $
-            Map.fromList $ (,) <$> pname <*> (JsonIP <$>) . pvalue <$> checkresults
+            Map.fromList $
+            (,) <$> pname <*> (JsonIP <$>) . pvalue <$> checkresults
           headers = [("Content-Type", "application/json")]
        in return $ responseLBS status200 headers json
     badRequest =
