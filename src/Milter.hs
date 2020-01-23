@@ -1,15 +1,18 @@
 {-# LANGUAGE RankNTypes #-}
-module Milter (newMilter) where
 
-import Control.Monad.IO.Class (MonadIO, liftIO)
+module Milter
+  ( newMilter
+  ) where
+
 import Control.Exception (bracket)
+import Control.Monad.IO.Class (MonadIO, liftIO)
 
-import Data.ByteString (ByteString)
+import Data.ByteString.Char8 (unpack)
 
 import qualified Network.Milter as MilterLib
-  ( MessageModificator
+  ( HandleF
+  , MessageModificator
   , MilterHandler(..)
-  , HandleFilterF
   , Response(..)
   , defaultMilterHandler
   , milter
@@ -43,10 +46,15 @@ server host port handler =
       return hdl
     closeHandle = hClose
 
-newMilter :: String -> String -> (ByteString -> IO()) -> IO ()
-newMilter host port send = server host port $ 
-        MilterLib.milter MilterLib.defaultMilterHandler
-    {MilterLib.open = open, MilterLib.eom = eom, MilterLib.connection = connect send}
+newMilter :: String -> String -> (String -> IO a) -> IO ()
+newMilter host port send =
+  server host port $
+  MilterLib.milter
+    MilterLib.defaultMilterHandler
+      { MilterLib.open = open
+      , MilterLib.eom = eom
+      , MilterLib.connection = connect send
+      }
 
 open :: (MonadIO m) => m MilterLib.Response
 open =
@@ -71,9 +79,5 @@ eom _ =
     putStrLn "accepted"
     return MilterLib.Accept
 
-connect :: (ByteString -> IO()) -> MilterLib.HandleFilterF
-connect send ip _ =
-  liftIO $ do
-    send ip
-    return MilterLib.Accept
-
+connect :: (String -> IO a) -> MilterLib.HandleF
+connect send ip _ = liftIO $ send (unpack ip) >> return MilterLib.Accept

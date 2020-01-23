@@ -16,6 +16,7 @@ chmod +x app/Maim.hs
 ## Check
 ```bash
 curl http://localhost/
+curl http://127.0.0.1:6000/check\?domain\=google.com
 ```
 
 ## Metrics

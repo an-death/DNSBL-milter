@@ -36,6 +36,8 @@ dependencies:
 - wai
 - http-types
 - aeson
+- safe-exceptions
+- containers
 
 library:
   source-dirs: src
@@ -46,8 +48,9 @@ executables:
     source-dirs:         app
     dependencies:
     - DNSBL-milter
-      #    cc-options: -static
-      #ld-options: -static 
+    cc-options: -static
+    ld-options: -static 
+
 tests:
   DNSBL-milter-test:
     main:                Spec.hs

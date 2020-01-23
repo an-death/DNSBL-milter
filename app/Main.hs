@@ -15,44 +15,34 @@
 
 module Main where
 
+import Data.Text as T (Text, pack, replace, toLower)
 import System.Environment (getArgs)
-
-import Data.ByteString (ByteString)
-import Data.ByteString.Char8 (unpack)
-import qualified Data.Text as T (Text, pack, replace, toLower)
-import Data.Text.Encoding (decodeUtf8)
 
 import Control.Concurrent.Async (concurrently)
 import Control.Monad (void)
 
-
-import Milter (newMilter)
-import RBL (lookupDomain, withProviders, Provider(..), Name)
-
+import Network.Wai.Handler.Warp (run)
 import qualified Network.Wai.Middleware.Prometheus as P
 import qualified Prometheus as P
 import qualified Prometheus.Metric.GHC as P
 
-import Data.IP
-
 import HTTP (app)
-import Network.Wai.Handler.Warp (run)
+import Milter (newMilter)
+import RBL (Provider(..), ProviderResponse, lookupDomain, name, withProviders)
 
-name :: String
-name = "DNSBL-milter"
+appname :: String
+appname = "DNSBL-milter"
 
 main :: IO ()
 main = do
   host:port:_ <- getArgs
-  print $ "Start " ++ name ++ " on " ++ host ++ ":" ++ port
+  print $ "Start " ++ appname ++ " on " ++ host ++ ":" ++ port
   metric <- registerMetrics
-  withProviders [(Provider "spamhaus",Provider "zen.spamhaus.org")] $ \rbl ->
-     let 
-        check = lookupDomain rbl . unpack
-        http = run 6000 (P.prometheus P.def (app name check))
-        output = metrics metric check
-        checkWithMetric = output  
-        milter = newMilter host port checkWithMetric
+  withProviders [Provider ("spamhaus", "zen.spamhaus.org")] $ \rbl ->
+    let check = lookupDomain rbl
+        output = instrumentMetric metric check
+        http = run 6000 (P.prometheus P.def (app appname output))
+        milter = newMilter host port output
      in void $ concurrently milter http
 
 data Metrics =
@@ -76,8 +66,7 @@ registerMetrics = do
       (\p -> P.withLabel _blacklist p P.incCounter)
 
 total :: P.Metric P.Counter
-total =
-  P.counter $ P.Info (withname "total_check") "The number of checked IP's."
+total = P.counter $ P.Info (withname "total_check") "The number of checked IP's."
 
 blacklisted :: P.Metric P.Counter
 blacklisted =
@@ -86,18 +75,19 @@ blacklisted =
 
 blacklist :: P.Metric (P.Vector P.Label1 P.Counter)
 blacklist =
-  P.vector (withname "blacklist") $
+  P.vector "provider" $
   P.counter $
   P.Info (withname "blacklist") "The count of matched IP's by provider."
 
 withname :: String -> T.Text
-withname descr = T.toLower . T.replace "-" "_" . T.pack $ name ++ "_" ++ descr
+withname descr = T.toLower . T.replace "-" "_" . T.pack $ appname ++ "_" ++ descr
 
-metrics :: Metrics -> (ByteString -> IO [(Provider Name, [IP])]) -> ByteString -> IO()
-metrics m f domain = do
-    incTotal m
-    res <- f domain
-    case res of 
-      [] -> return ()
-      ps -> mapM_ (incBlacklist m . (\ (Provider p) -> decodeUtf8 p) . fst) ps
-
+instrumentMetric :: Metrics -> (String -> IO [ProviderResponse])
+                 -> String -> IO [ProviderResponse]
+instrumentMetric m f domain = do
+  incTotal m
+  res <- f domain
+  case res of
+    [] -> return ()
+    ps -> mapM_ (incBlacklist m . name) ps
+  return res

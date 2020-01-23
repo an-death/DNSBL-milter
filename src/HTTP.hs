@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE Strict #-}
@@ -6,34 +7,31 @@ module HTTP
   ( app
   ) where
 
-import Data.ByteString (ByteString)
+import Data.ByteString.Char8 (unpack)
 import Data.ByteString.Lazy.Char8 (pack)
-import Data.Text.Encoding (decodeUtf8)
+import Data.Map as Map (fromList)
 import qualified Data.Text as T
 
 import qualified Data.Aeson as DA
 
-import Network.HTTP.Types (status200, status404, status400)
+import Network.HTTP.Types (status200, status400, status404)
 import Network.Wai
 
 import Data.IP
-import RBL (Provider(..), Name)
+import RBL (ProviderResponse, name, value)
 
-type CheckDomain = ByteString -> IO [(Provider Name, [IP])]
+type CheckDomain = String -> IO [ProviderResponse]
 
-newtype JsonProvider = JsonProvider (Provider Name)
-newtype JsonIP = JsonIP IP
+newtype JsonIP =
+  JsonIP IP
+  deriving (Show)
 
-instance DA.ToJSON JsonProvider where
-        toJSON (JsonProvider (Provider bs)) = DA.String $ decodeUtf8 bs 
-
-instance DA.ToJSON JsonIP where 
-        toJSON (JsonIP ip) = DA.String . T.pack $ show ip
-
+instance DA.ToJSON JsonIP where
+  toJSON (JsonIP ip) = DA.String . T.pack $ show ip
 
 app :: String -> CheckDomain -> Application
-app name checkF request respond = do
-  let index' = index name
+app appname checkF request respond = do
+  let index' = index appname
   response <-
     case pathInfo request of
       [] -> return index'
@@ -42,25 +40,24 @@ app name checkF request respond = do
   respond response
 
 index :: String -> Response
-index name = responseLBS status200 [("Content-Type", "text/plain")] (pack name)
+index appname = responseLBS status200 [("Content-Type", "text/plain")] (pack appname)
 
 notFound :: Response
 notFound = responseLBS status404 [("Content-Type", "text/plain")] "¯\\_(ツ)_/¯"
 
 check :: CheckDomain -> Request -> IO Response
-check f request = do
-  let query = queryString request
+check f request =
   case lookup "domain" query of
-    Nothing -> badRequest
-    Just Nothing -> badRequest
-    Just (Just domain) -> do
-      res <- f domain
-      response res
+    Just (Just domain) -> f (unpack domain) >>= response
+    _                  -> badRequest
   where
+    query = queryString request
+    response checkresults =
+      let json =
+            DA.encode $
+            Map.fromList $ (,) <$> name <*> (JsonIP <$>) . value <$> checkresults
+          headers = [("Content-Type", "application/json")]
+       in return $ responseLBS status200 headers json
     badRequest =
       return $
       responseLBS status400 [("Content-Type", "text/plain")] "Invalid query"
-    response ips = return $ responseLBS status200 headers json 
-        where 
-            json = DA.encode $ map (\(a, b)-> (JsonProvider a, map JsonIP b))ips
-            headers = [("Content-Type", "application/json")]
