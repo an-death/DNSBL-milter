@@ -1,22 +1,14 @@
-#!/usr/bin/env stack
-{- stack
-  --resolver lts-14.20
-  --install-ghc
-  runghc
-  --
-  localhost
-  8000
-  zen.spamhaus.org
-  +RTS -T
--}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE Strict #-}
 
 module Main where
 
-import Data.Text as T (Text, pack, replace, toLower)
 import System.Environment (getArgs)
+
+import Data.ByteString.Char8 as B (pack)
+import Data.Text as T (Text, pack, replace, toLower)
+import Data.List (elemIndex)
 
 import Control.Concurrent.Async (concurrently)
 import Control.Monad (void)
@@ -28,17 +20,33 @@ import qualified Prometheus.Metric.GHC as P
 
 import HTTP (app)
 import Milter (newMilter)
-import RBL (Provider(..), ProviderResponse, lookupDomain, name, withProviders)
+import RBL
+  ( Domain
+  , Provider(..)
+  , ProviderResponse
+  , lookupDomain
+  , pname
+  , withProviders
+  )
 
 appname :: String
 appname = "DNSBL-milter"
 
+parseProviders :: [String] -> [Provider Domain]
+parseProviders = map parseProvider
+
+parseProvider :: String -> Provider Domain
+parseProvider provider =
+  let (Just idx) = elemIndex ':' provider
+      (name, domain) = splitAt idx provider
+   in Provider (T.pack name, B.pack domain)
+
 main :: IO ()
 main = do
-  host:port:_ <- getArgs
-  print $ "Start " ++ appname ++ " on " ++ host ++ ":" ++ port
+  host:port:providers <- getArgs
+  putStrLn $ "Start " ++ appname ++ " on " ++ host ++ ":" ++ port
   metric <- registerMetrics
-  withProviders [Provider ("spamhaus", "zen.spamhaus.org")] $ \rbl ->
+  withProviders (parseProviders providers) $ \rbl ->
     let check = lookupDomain rbl
         output = instrumentMetric metric check
         http = run 6000 (P.prometheus P.def (app appname output))
@@ -66,7 +74,9 @@ registerMetrics = do
       (\p -> P.withLabel _blacklist p P.incCounter)
 
 total :: P.Metric P.Counter
-total = P.counter $ P.Info (withname "total_check") "The number of checked IP's."
+total =
+  P.counter $ 
+  P.Info (withname "total_check") "The number of checked IP's."
 
 blacklisted :: P.Metric P.Counter
 blacklisted =
@@ -80,14 +90,16 @@ blacklist =
   P.Info (withname "blacklist") "The count of matched IP's by provider."
 
 withname :: String -> T.Text
-withname descr = T.toLower . T.replace "-" "_" . T.pack $ appname ++ "_" ++ descr
+withname descr = cleanMetricName . T.pack $ appname ++ "_" ++ descr
 
-instrumentMetric :: Metrics -> (String -> IO [ProviderResponse])
-                 -> String -> IO [ProviderResponse]
+cleanMetricName :: T.Text -> T.Text
+cleanMetricName = T.toLower . T.replace "-" "_" 
+
+instrumentMetric :: Metrics -> (a -> IO [ProviderResponse]) -> a -> IO [ProviderResponse]
 instrumentMetric m f domain = do
   incTotal m
   res <- f domain
   case res of
     [] -> return ()
-    ps -> mapM_ (incBlacklist m . name) ps
+    ps -> mapM_ (incBlacklist m . pname) ps
   return res

@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE Strict #-}
@@ -18,7 +17,7 @@ import Network.HTTP.Types (status200, status400, status404)
 import Network.Wai
 
 import Data.IP
-import RBL (ProviderResponse, name, value)
+import RBL (ProviderResponse, pname, pvalue)
 
 type CheckDomain = String -> IO [ProviderResponse]
 
@@ -55,7 +54,7 @@ check f request =
     response checkresults =
       let json =
             DA.encode $
-            Map.fromList $ (,) <$> name <*> (JsonIP <$>) . value <$> checkresults
+            Map.fromList $ (,) <$> pname <*> (JsonIP <$>) . pvalue <$> checkresults
           headers = [("Content-Type", "application/json")]
        in return $ responseLBS status200 headers json
     badRequest =

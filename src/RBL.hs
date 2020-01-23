@@ -12,8 +12,8 @@ module RBL
   , lookupA
   , lookupDomain
   , withProviders
-  , name
-  , value
+  , pname
+  , pvalue
   ) where
 
 import Control.Concurrent.Async (mapConcurrently)
@@ -45,11 +45,11 @@ type Providers = [Provider Domain]
 
 type ProviderResponse = Provider Response
 
-name :: Provider a -> Name
-name (Provider v) = fst v
+pname :: Provider a -> Name
+pname (Provider v) = fst v
 
-value :: Provider a -> a
-value (Provider v) = snd v
+pvalue :: Provider a -> a
+pvalue (Provider v) = snd v
 
 data RBL =
   RBL
@@ -71,11 +71,11 @@ withProviders providers f =
 
 lookupIP :: RBL -> IPv4 -> IO [ProviderResponse]
 lookupIP (RBL ps resolver) ip =
-  dropWhile (null . value) <$> mapConcurrently lookupProvider ps
+  dropWhile (null . pvalue) <$> mapConcurrently lookupProvider ps
   where
     lookupProvider :: Provider Domain -> IO ProviderResponse
     lookupProvider provider = do
-      let checkDomain = joinProviderAndAddr (value provider) ip
+      let checkDomain = joinProviderAndAddr (pvalue provider) ip
       resp <- lookupA resolver checkDomain
       let ips = maybe [] (map IPv4) resp
       return $ ips <$ provider
