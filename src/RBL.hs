@@ -1,6 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE Strict #-}
 
 module RBL
@@ -10,17 +12,16 @@ module RBL
   , Name
   , Domain
   , ProviderResponse
+  , ResolveError
   , lookupA
   , lookupDomain
   , withProviders
   ) where
 
 import Control.Concurrent.Async (mapConcurrently)
-import Control.Exception (throwIO)
-import Control.Exception.Safe (catch, throwString)
-import Control.Monad (when)
-import Data.Maybe (fromJust, isNothing)
-
+import Control.Exception.Safe (throwM, Typeable,)
+import Control.Exception (Exception(..),ArrayException(IndexOutOfBounds))
+import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Char8 as BS
@@ -35,7 +36,7 @@ data Provider a =
     { pname :: !Name
     , pvalue :: !a
     }
-  deriving (Functor)
+  deriving (Functor, Show)
 
 type Name = T.Text
 
@@ -45,12 +46,19 @@ type Response = [IP]
 
 type Providers = [Provider Domain]
 
-type ProviderResponse = Provider Response
+type ProviderResponse = Either (Provider ResolveError) (Provider Response)
+
+data ResolveError = forall e d. (Exception e, Show d) => ResolveError d e
+    deriving Typeable
+instance  Show ResolveError where
+    show (ResolveError dom e) = "Domain " ++ show dom ++ " not resolved. Reason: " ++ displayException e
+instance  Exception ResolveError
+
 
 data RBL =
   RBL
     { _providers :: !Providers
-    , _resolver :: !DNS.Resolver
+    , _resolve :: forall m. (MonadIO m) => ByteString -> m (Either DNS.DNSError [IPv4])
     }
 
 withDefaultResolver :: (DNS.Resolver -> IO a) -> IO a
@@ -63,37 +71,37 @@ withDefaultResolver f =
 withProviders :: Providers -> (RBL -> IO a) -> IO a
 withProviders providers f =
   withDefaultResolver $ \resolver ->
-    f $ RBL {_providers = providers, _resolver = resolver}
+    f $ RBL {_providers = providers, _resolve = lookupA resolver}
+
+lookupA :: (MonadIO m) => DNS.Resolver -> ByteString -> m (Either DNS.DNSError [IPv4])
+lookupA resolver = liftIO . (fmap parse). DNS.lookupA resolver
+   where
+     parse (Left DNS.NameError) = Right []
+     parse a = a
+
+lookupDomain :: RBL -> String -> IO [ProviderResponse]
+lookupDomain rbl@(RBL _ resolve) domain = do
+  res <- resolve domainBS
+  case res of
+    Left e -> throwResolveError e
+    Right [] -> throwEmptyIPError 
+    Right ips -> concat <$> mapConcurrently (lookupIP rbl) ips
+  where
+    domainBS = BS.pack domain
+    throwResolveError e = throwM $ ResolveError domain e
+    throwEmptyIPError = throwM $ ResolveError domain (IndexOutOfBounds "no IP resolved") 
 
 lookupIP :: RBL -> IPv4 -> IO [ProviderResponse]
-lookupIP (RBL ps resolver) ip =
-  dropWhile (null . pvalue) <$> mapConcurrently lookupProvider ps
+lookupIP (RBL ps resolve) ip =
+  mapConcurrently lookupProvider ps
   where
     lookupProvider :: Provider Domain -> IO ProviderResponse
     lookupProvider provider = do
       let checkDomain = joinProviderAndAddr (pvalue provider) ip
-      resp <- lookupA resolver checkDomain
-      let ips = maybe [] (map IPv4) resp
-      return $ ips <$ provider
-
-lookupDomain :: RBL -> String -> IO [ProviderResponse]
-lookupDomain rbl@(RBL _ resolver) domain = do
-  ip <- lookupA resolver domainBS
-  when (isNothing ip) $ throwString (domain ++ " not resolved")
-  results <- mapConcurrently lookupIPSafe (fromJust ip)
-  return $ concat results
-  where
-    domainBS = BS.pack domain
-    lookupIPSafe ip =
-      lookupIP rbl ip `catch` (\(_ :: DNS.DNSError) -> return [])
-
-lookupA :: DNS.Resolver -> ByteString -> IO (Maybe [IPv4])
-lookupA resolver domain = do
-  resp <- DNS.lookupA resolver domain
-  case resp of
-    Left DNS.NameError -> return Nothing  -- name not found
-    Right ansv -> return $ Just ansv
-    Left e -> throwIO e
+      resolve checkDomain >>= \resp -> return $
+              case resp of 
+                Left e   -> Left $ ResolveError checkDomain e <$ provider
+                Right xs -> Right$ map IPv4 xs <$ provider
 
 -- | Joining provider domain address with resolved domain address with reversed octets
 --   11.22.33.44 + domain.com =>  44.33.22.11.domain.com
