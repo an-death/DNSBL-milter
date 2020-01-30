@@ -1,20 +1,16 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE Strict #-}
-
 module Main where
 
 import System.Environment (getArgs)
 
 import Data.ByteString.Char8 as B (pack)
-import Data.List (elemIndex, partition)
+import Data.Either (partitionEithers)
+import Data.List (elemIndex)
 import Data.Text as T (Text, pack, replace, toLower)
 
 import Control.Concurrent.Async (concurrently)
 import Control.Exception.Safe (throwString)
 import Control.Monad (void)
 
-import qualified Network.DNS as DNS (DNSError(NameError))
 import Network.Wai.Handler.Warp (run)
 import qualified Network.Wai.Middleware.Prometheus as P
 import qualified Prometheus as P
@@ -22,7 +18,7 @@ import qualified Prometheus.Metric.GHC as P
 
 import HTTP (app)
 import Milter (newMilter)
-import RBL (Domain, Provider(..), lookupDomain, withProviders,ProviderResponse)
+import RBL (Domain, Provider(..), ProviderResponse, lookupDomain, withProviders)
 
 appname :: String
 appname = "DNSBL-milter"
@@ -55,12 +51,11 @@ parseProvider provider =
       throwString $
       "Cannot parse provider. Expected {name}:{domain}, got: " ++ provider
 
-data Metrics =
-  Metrics
-    { incTotal :: IO ()
-    , incBlacklisted :: IO ()
-    , incBlacklist :: P.Label1 -> IO ()
-    }
+data Metrics = Metrics
+  { incTotal :: IO ()
+  , incBlacklisted :: IO ()
+  , incBlacklist :: P.Label1 -> IO ()
+  }
 
 registerMetrics :: IO Metrics
 registerMetrics = do
@@ -96,14 +91,14 @@ withname descr = cleanMetricName . T.pack $ appname ++ "_" ++ descr
 cleanMetricName :: T.Text -> T.Text
 cleanMetricName = T.toLower . T.replace "-" "_"
 
-instrumentMetric :: (Show a) => Metrics -> (a -> IO [ProviderResponse]) -> a -> IO [ProviderResponse]
+instrumentMetric ::
+     Metrics -> (a -> IO [ProviderResponse]) -> a -> IO [ProviderResponse]
 instrumentMetric m f domain = do
   incTotal m
   res <- f domain
-  let (errors, results) = partition (null.pvalue) res
+  let (errors, results) = partitionEithers res
   case results of
     [] -> return ()
     ps -> incBlacklisted m >> mapM_ (incBlacklist m . pname) ps
-  mapM_ (putStrLn . show) $ filter (== Left DNS.NameError . pvalue) errors
+  mapM_ print errors
   return res
-
