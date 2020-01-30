@@ -1,12 +1,9 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE Strict #-}
-
 module Main where
 
 import System.Environment (getArgs)
 
 import Data.ByteString.Char8 as B (pack)
+import Data.Either (partitionEithers)
 import Data.List (elemIndex)
 import Data.Text as T (Text, pack, replace, toLower)
 
@@ -26,19 +23,6 @@ import RBL (Domain, Provider(..), ProviderResponse, lookupDomain, withProviders)
 appname :: String
 appname = "DNSBL-milter"
 
-parseProviders :: [String] -> IO [Provider Domain]
-parseProviders = mapM parseProvider
-
-parseProvider :: String -> IO (Provider Domain)
-parseProvider provider =
-  case elemIndex ':' provider of
-    Nothing ->
-      throwString $
-      "cannot parse provider. Expected {name}:{domain}, got: " ++ provider
-    (Just idx) ->
-      let (name, ':':domain) = splitAt idx provider
-       in return $ Provider {pname = T.pack name, pvalue = B.pack domain}
-
 main :: IO ()
 main = do
   host:port:xs <- getArgs
@@ -52,12 +36,26 @@ main = do
         milter = newMilter host port output
      in void $ concurrently milter http
 
-data Metrics =
-  Metrics
-    { incTotal :: IO ()
-    , incBlacklisted :: IO ()
-    , incBlacklist :: P.Label1 -> IO ()
-    }
+parseProviders :: [String] -> IO [Provider Domain]
+parseProviders = mapM parseProvider
+
+parseProvider :: String -> IO (Provider Domain)
+parseProvider provider =
+  case elemIndex ':' provider of
+    Nothing -> cannotParseProvider
+    Just idx ->
+      let (name, ':':domain) = splitAt idx provider
+       in return $ Provider {pname = T.pack name, pvalue = B.pack domain}
+  where
+    cannotParseProvider =
+      throwString $
+      "Cannot parse provider. Expected {name}:{domain}, got: " ++ provider
+
+data Metrics = Metrics
+  { incTotal :: IO ()
+  , incBlacklisted :: IO ()
+  , incBlacklist :: P.Label1 -> IO ()
+  }
 
 registerMetrics :: IO Metrics
 registerMetrics = do
@@ -65,27 +63,27 @@ registerMetrics = do
   _total <- P.register total
   _blacklisted <- P.register blacklisted
   _blacklist <- P.register blacklist
-  let inc = P.incCounter
   return $
     Metrics
       (inc _total)
       (inc _blacklisted)
-      (\p -> P.withLabel _blacklist p P.incCounter)
-
-total :: P.Metric P.Counter
-total =
-  P.counter $ P.Info (withname "total_check") "The number of checked IP's."
-
-blacklisted :: P.Metric P.Counter
-blacklisted =
-  P.counter $
-  P.Info (withname "blacklisted") "The count of blacklisted IP's from total."
-
-blacklist :: P.Metric (P.Vector P.Label1 P.Counter)
-blacklist =
-  P.vector "provider" $
-  P.counter $
-  P.Info (withname "blacklist") "The count of matched IP's by provider."
+      (flip (P.withLabel _blacklist) P.incCounter)
+  where
+    inc = P.incCounter
+    total :: P.Metric P.Counter
+    total =
+      P.counter $ P.Info (withname "checks_total") "The number of checked IP's."
+    blacklisted :: P.Metric P.Counter
+    blacklisted =
+      P.counter $
+      P.Info
+        (withname "blacklisted")
+        "The count of blacklisted IP's from total."
+    blacklist :: P.Metric (P.Vector P.Label1 P.Counter)
+    blacklist =
+      P.vector "provider" $
+      P.counter $
+      P.Info (withname "blacklist") "The count of matched IP's by provider."
 
 withname :: String -> T.Text
 withname descr = cleanMetricName . T.pack $ appname ++ "_" ++ descr
@@ -98,7 +96,9 @@ instrumentMetric ::
 instrumentMetric m f domain = do
   incTotal m
   res <- f domain
-  case res of
+  let (errors, results) = partitionEithers res
+  case results of
     [] -> return ()
-    ps -> mapM_ (incBlacklist m . pname) ps
+    ps -> incBlacklisted m >> mapM_ (incBlacklist m . pname) ps
+  mapM_ print errors
   return res
