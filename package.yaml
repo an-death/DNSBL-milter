@@ -42,6 +42,7 @@ dependencies:
 - aeson
 - safe-exceptions
 - containers
+- optparse-applicative
 
 library:
   source-dirs: src
