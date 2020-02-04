@@ -47,27 +47,26 @@ server host port handler =
       return hdl
     closeHandle = hClose
 
-newMilter :: (Foldable t) => String -> String -> (String -> IO (t a)) -> IO ()
-newMilter host port send =
+newMilter :: String -> String -> (String -> IO a) -> IO ()
+newMilter host port check =
   server host port $
   MilterLib.milter
     MilterLib.defaultMilterHandler
       { MilterLib.open = open
       , MilterLib.eom = eom
-      , MilterLib.connection = connect send
-      , MilterLib.helo = helo send
+      , MilterLib.connection = connect check
       }
 
 open :: (MonadIO m) => m MilterLib.Response
 open = return $ MilterLib.Negotiate 2 Opt.NoAction onlyConnect
   where
     onlyConnect =
-      foldr1
-        (<>)
-        [Opt.NoRcptTo, Opt.NoBody, Opt.NoHeaders, Opt.NoEOH]
+      foldr1 (<>) [Opt.NoRcptTo, Opt.NoBody, Opt.NoHeaders, Opt.NoEOH]
 
 connect :: (String -> IO a) -> MilterLib.HandleF
-connect send ip _ = liftIO $ send (show $ getIP ip) >> 
+connect send ip _ =
+  liftIO $
+  send (show $ getIP ip) >>
   -- ignore any others checks
   -- after Accept other commands below will be skipped
   return MilterLib.Accept
@@ -82,4 +81,3 @@ helo send helostr _ =
 
 eom :: (MonadIO m) => MilterLib.MessageModificator -> m MilterLib.Response
 eom _ = return MilterLib.Accept
-

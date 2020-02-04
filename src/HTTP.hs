@@ -2,9 +2,10 @@
 
 module HTTP
   ( app
+  , handleErr
   ) where
 
-import Control.Exception (catch, displayException)
+import Control.Exception (Exception, catch, displayException)
 import Data.ByteString.Char8 (unpack)
 import Data.ByteString.Lazy as LBS (ByteString)
 import Data.ByteString.Lazy.Char8 (pack)
@@ -17,7 +18,7 @@ import Network.Wai
 
 import RBL (Provider(..), ProviderResponse, ResolveError, pname, pvalue)
 
-type CheckDomain = String -> IO [ProviderResponse]
+type CheckDomain = String -> IO (Status, LBS.ByteString)
 
 data JsonResponse = JsonResponse
   { err :: String
@@ -55,18 +56,10 @@ check f request =
     query = queryString request
     domain = lookup "domain" query >>= fmap unpack
     checkDomain Nothing = return badRequest
-    checkDomain (Just domain') =
-      (response . mapResult <$> f domain') `catch` handleErr
-    mapResult =
-      let mapErr = fmap (pure . displayException)
-          mapOk = fmap (map show)
-       in fmap (either mapErr mapOk)
-    response results =
-      let json = DA.encode dict
-          dict = Map.fromList $ (,) <$> pname <*> pvalue <$> results
-       in (status200, json)
-    handleErr :: ResolveError -> IO (Status, LBS.ByteString)
-    handleErr e = return (status500, jsonError (displayException e))
+    checkDomain (Just domain') = f domain'
+
+handleErr :: (Exception e) => e -> (Status, LBS.ByteString)
+handleErr e = (status500, jsonError (displayException e))
 
 jsonError :: String -> LBS.ByteString
 jsonError e = DA.encode $ DA.object ["error" DA..= e]

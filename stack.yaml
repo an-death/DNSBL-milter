@@ -74,5 +74,5 @@ ghc-options:
     "$locals": -Wall 
     "$targets": -Wcompat 
                 -Wredundant-constraints 
-                -Werror
+                #                -Werror
     "$everything": -O2 -fPIC
