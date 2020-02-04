@@ -1,3 +1,5 @@
+{-# LANGUAGE FlexibleContexts #-}
+
 module Main where
 
 import System.Environment (getArgs)
@@ -8,17 +10,31 @@ import Data.List (elemIndex)
 import Data.Text as T (Text, pack, replace, toLower)
 
 import Control.Concurrent.Async (concurrently)
-import Control.Exception.Safe (throwString)
-import Control.Monad (void)
+import Control.Exception.Safe (displayException, throwString)
+import Control.Monad ((>=>), void)
+import Control.Monad.IO.Class (liftIO)
 
 import Network.Wai.Handler.Warp (run)
 import qualified Network.Wai.Middleware.Prometheus as P
 import qualified Prometheus as P
 import qualified Prometheus.Metric.GHC as P
 
-import HTTP (app)
+import HTTP (app, handleErr)
 import Milter (newMilter)
-import RBL (Domain, Provider(..), ProviderResponse, lookupDomain, withProviders)
+import RBL
+  ( Domain
+  , Provider(..)
+  , ProviderResponse
+  , lookupA
+  , lookupProvider
+  , withDefaultResolver
+  )
+import RBLAlgo
+
+import Data.Map as Map (fromList)
+import Network.HTTP.Types (Status, status200, status404, status500)
+
+import qualified Data.Aeson as DA
 
 appname :: String
 appname = "DNSBL-milter"
@@ -29,13 +45,39 @@ main = do
   putStrLn $ "Start " ++ appname ++ " on " ++ host ++ ":" ++ port
   metric <- registerMetrics
   providers <- parseProviders xs
-  withProviders providers $ \rbl ->
-    let check = lookupDomain rbl
-        output = instrumentMetric metric check
-        http = run 6000 (P.prometheus P.def (app appname output))
-        milter = newMilter host port output
+  withDefaultResolver $ \resolver ->
+    let lookUpDomain = lookupA resolver
+        lookUpRBL = lookupProvider lookUpDomain
+        milterChecker =
+          checkDomainMilter lookUpDomain lookUpRBL providers . B.pack
+        httpChecker = checkDomainHTTP lookUpDomain lookUpRBL providers . B.pack
+        http = run 6000 (P.prometheus P.def (app appname httpChecker))
+        milter = newMilter host port milterChecker
      in void $ concurrently milter http
 
+checkDomainMilter lookUpDomain lookUpRBL providers =
+  checkDomainM lookUpDomain lookUpRBL handleProvider wrapResult providers
+  where
+    handleProvider = (logErr, metricProvider)
+    wrapResult = (void . return, void . metricResult)
+    logErr = putStrLn . displayException >=> return . const False
+
+checkDomainHTTP lookUpDomain lookUpRBL providers =
+  checkDomain lookUpDomain lookUpRBL handleProvider wrapResult providers
+  where
+    handleProvider =
+      ( (,) <$> pname <*> displayException . pvalue
+      , (,) <$> pname <*> show . pvalue)
+    wrapResult =
+      (handleErr, (,) <$> const status200 <*> DA.encode . Map.fromList . concat)
+
+metricProvider :: Provider [a] -> IO Bool
+metricProvider = undefined
+
+metricResult :: [[Bool]] -> IO ()
+metricResult = undefined
+
+---------------------------------------------
 parseProviders :: [String] -> IO [Provider Domain]
 parseProviders = mapM parseProvider
 
