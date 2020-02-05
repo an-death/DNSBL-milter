@@ -26,9 +26,8 @@ main = do
   opt <- parseCLIParams
   let host = optHost . optMilter $ opt 
       port = show . optPort . optMilter $ opt
-      httpPort = optPort . optHttp $ opt
+      httpPort = optHttpPort $ opt
       providers = optProviders opt
-  print providers
   putStrLn $ "Start " ++ appname ++ " on " ++ host ++ ":" ++ port
   metric <- registerMetrics
   withProviders providers $ \rbl ->

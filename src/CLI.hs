@@ -9,7 +9,7 @@ import RBL (Domain, Provider(..))
 
 data AppOpts = AppOpts
   { optMilter :: !HostPort
-  , optHttp :: !HostPort
+  , optHttpPort :: !Int
   , optProviders :: ![Provider Domain]
   }
 
@@ -21,27 +21,28 @@ data HostPort = HostPort
 parseCLIParams :: IO AppOpts
 parseCLIParams = execParser opts
   where
-    opts = info (mkParams <**> helper) (fullDesc <> progDesc "DNS RBL milter")
+    opts = info (mkParams <**> helper) (fullDesc <> header "DNSBL milter")
 
 mkParams :: Parser AppOpts
 mkParams =
   AppOpts <$>
-  option
-    parseHostPort
-    (long "milter-host-port" <> short 'm' <> help "milter tcp param" <>
-     metavar "{host}:{port}") <*>
-  option
-    parseHostPort
-    (long "http-host-port" <>
-     help
-       "HTTP host-pot for internal API. /metrics for example. Default: localhost:6000" <>
-     metavar "{host}:{port}" <>
-     value (HostPort {optHost = "localhost", optPort = 6000})) <*>
-  some
-    (argument
-       parseProviderStr
-       (metavar "Providers..." <>
-        help "List of colon separated providers {name}:{domain}"))
+        option
+          parseHostPort
+          (long "milter-host-port"
+          <> short 'm'
+          <> help "milter TCP server specification"
+          <> metavar "{host}:{port}")
+    <*> option
+          auto
+          (long "http-port"
+          <> help "HTTP port for internal API. Default: localhost:6000"
+          <> metavar "PORT"
+          <> value 6000) 
+    <*> some
+        (argument
+           parseProviderStr
+           (metavar "PROVIDERS..."
+           <> help "List of colon separated providers {name}:{domain}"))
   where
     parseHostPort = (HostPort <$> fst <*> read . snd) <$> parseColonSeparated
     parseProviderStr =
