@@ -1,0 +1,19 @@
+[Unit]
+Description=DNSBL milter for collecting RBL results
+After=network.target auditd.service
+
+[Service]
+User=postfix
+Group=postfix
+WorkingDirectory=/var/cache/filter
+ExecStart=/usr/local/bin/DNSBL-milter-exe \
+    -m localhost:9399 \
+    --http-port=6000 \
+    spamhaus:zen.spamhaus.org \
+    rbl-test:rbltest.net \
+    sip-invaluement:sip.invaluement.com.rbl.intermedia.net
+KillMode=process
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

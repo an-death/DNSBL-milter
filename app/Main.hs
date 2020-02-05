@@ -1,14 +1,10 @@
 module Main where
 
-import System.Environment (getArgs)
 
-import Data.ByteString.Char8 as B (pack)
 import Data.Either (partitionEithers)
-import Data.List (elemIndex)
 import Data.Text as T (Text, pack, replace, toLower)
 
 import Control.Concurrent.Async (concurrently)
-import Control.Exception.Safe (throwString)
 import Control.Monad (void)
 
 import Network.Wai.Handler.Warp (run)
@@ -18,38 +14,29 @@ import qualified Prometheus.Metric.GHC as P
 
 import HTTP (app)
 import Milter (newMilter)
-import RBL (Domain, Provider(..), ProviderResponse, lookupDomain, withProviders)
+import RBL (Provider(..), ProviderResponse, lookupDomain, withProviders)
+import CLI (parseCLIParams, AppOpts(..), HostPort(..))
+
 
 appname :: String
 appname = "DNSBL-milter"
 
 main :: IO ()
 main = do
-  host:port:xs <- getArgs
+  opt <- parseCLIParams
+  let host = optHost . optMilter $ opt 
+      port = show . optPort . optMilter $ opt
+      httpPort = optHttpPort $ opt
+      providers = optProviders opt
   putStrLn $ "Start " ++ appname ++ " on " ++ host ++ ":" ++ port
   metric <- registerMetrics
-  providers <- parseProviders xs
   withProviders providers $ \rbl ->
     let check = lookupDomain rbl
         output = instrumentMetric metric check
-        http = run 6000 (P.prometheus P.def (app appname output))
+        http = run httpPort (P.prometheus P.def (app appname output))
         milter = newMilter host port output
      in void $ concurrently milter http
 
-parseProviders :: [String] -> IO [Provider Domain]
-parseProviders = mapM parseProvider
-
-parseProvider :: String -> IO (Provider Domain)
-parseProvider provider =
-  case elemIndex ':' provider of
-    Nothing -> cannotParseProvider
-    Just idx ->
-      let (name, ':':domain) = splitAt idx provider
-       in return $ Provider {pname = T.pack name, pvalue = B.pack domain}
-  where
-    cannotParseProvider =
-      throwString $
-      "Cannot parse provider. Expected {name}:{domain}, got: " ++ provider
 
 data Metrics = Metrics
   { incTotal :: IO ()
