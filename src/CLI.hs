@@ -3,6 +3,7 @@ module CLI where
 import Data.ByteString.Char8 as B (pack)
 import Data.List (elemIndex)
 import Data.Text as T (pack)
+import GHC.Word (Word32)
 
 import Options.Applicative
 import RBL (Domain, Provider(..))
@@ -10,6 +11,9 @@ import RBL (Domain, Provider(..))
 data AppOpts = AppOpts
   { optMilter :: !HostPort
   , optHttpPort :: !Int
+  , optResolvConfFile :: !String
+  , optCacheDisable :: !Bool
+  , optCacheTTL :: !Word32
   , optProviders :: ![Provider Domain]
   }
 
@@ -21,23 +25,41 @@ data HostPort = HostPort
 parseCLIParams :: IO AppOpts
 parseCLIParams = execParser opts
   where
-    opts = info (mkParams <**> helper) (fullDesc <> header "DNSBL milter")
+    opts = info
+      (mkParams <**> helper)
+      ( fullDesc <>
+        header "DNSBL milter for collecting RBL results")
 
 mkParams :: Parser AppOpts
 mkParams =
   AppOpts <$>
         option
           parseHostPort
-          (long "milter-host-port"
+          (  long "milter-host-port"
           <> short 'm'
           <> help "milter TCP server specification"
-          <> metavar "{host}:{port}")
+          <> metavar "{HOST}:{PORT}")
     <*> option
           auto
-          (long "http-port"
+          (  long "http-port"
           <> help "HTTP port for internal API. Default: localhost:6000"
           <> metavar "PORT"
-          <> value 6000) 
+          <> value 6000)
+    <*> option
+         str
+         (  long "resolv-cfg"
+         <> value "/etc/resolv.conf"
+         <> metavar "FILEPATH"
+         <> help "Specific path to resolv.conf file. Default: /etc/resolve.conf")
+    <*> switch
+        (  long "disable-cache"
+        <> help "Disabling internal cache. Enabled cache may lead a gross of MEM consumption on high load")
+    <*> option
+         auto
+         (  long "cache-ttl"
+         <> value 300
+         <> metavar "SEC"
+         <> help "Time to live internal cache entities in seconds. Default: 300")
     <*> some
         (argument
            parseProviderStr

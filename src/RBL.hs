@@ -6,6 +6,7 @@ module RBL
   ( RBL
   , Provider(..)
   , Providers
+  , ResolvConf(..)
   , Name
   , Domain
   , ProviderResponse
@@ -55,22 +56,34 @@ instance Show ResolveError where
 
 instance Exception ResolveError
 
+data ResolvConf = ResolvConf
+  { resolvConfPath :: !String
+  , disableCache :: !Bool
+  , cacheTTL :: !DNS.TTL
+  }
+
 data RBL = RBL
   { _providers :: !Providers
   , _resolve :: forall m. (MonadIO m) =>
                             ByteString -> m (Either DNS.DNSError [IPv4])
   }
 
-withDefaultResolver :: (DNS.Resolver -> IO a) -> IO a
-withDefaultResolver f =
+withResolver :: ResolvConf -> (DNS.Resolver -> IO a) -> IO a
+withResolver cfg f =
   DNS.makeResolvSeed resolverConf >>= \rc -> DNS.withResolver rc f
   where
     resolverConf =
-      DNS.defaultResolvConf {DNS.resolvCache = Just DNS.defaultCacheConf}
+      DNS.defaultResolvConf
+        { DNS.resolvCache = cacheConf
+        , DNS.resolvInfo  = DNS.RCFilePath (resolvConfPath cfg)
+        }
+    cacheConf
+      | disableCache cfg = Nothing
+      | otherwise        = Just DNS.defaultCacheConf {DNS.maximumTTL = (cacheTTL cfg)}
 
-withProviders :: Providers -> (RBL -> IO a) -> IO a
-withProviders providers f =
-  withDefaultResolver $ \resolver ->
+withProviders :: ResolvConf -> Providers -> (RBL -> IO a) -> IO a
+withProviders cfg providers f =
+  withResolver cfg $ \resolver ->
     f $ RBL {_providers = providers, _resolve = lookupA resolver}
 
 lookupA ::

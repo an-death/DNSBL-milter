@@ -14,7 +14,7 @@ import qualified Prometheus.Metric.GHC as P
 
 import HTTP (app)
 import Milter (newMilter)
-import RBL (Provider(..), ProviderResponse, lookupDomain, withProviders)
+import RBL (Provider(..), ProviderResponse, lookupDomain, withProviders, ResolvConf(..))
 import CLI (parseCLIParams, AppOpts(..), HostPort(..))
 
 
@@ -28,9 +28,10 @@ main = do
       port = show . optPort . optMilter $ opt
       httpPort = optHttpPort $ opt
       providers = optProviders opt
+      resolvConf = ResolvConf (optResolvConfFile opt) (optCacheDisable opt) (optCacheTTL opt)
   putStrLn $ "Start " ++ appname ++ " on " ++ host ++ ":" ++ port
   metric <- registerMetrics
-  withProviders providers $ \rbl ->
+  withProviders resolvConf providers $ \rbl ->
     let check = lookupDomain rbl
         output = instrumentMetric metric check
         http = run httpPort (P.prometheus P.def (app appname output))
